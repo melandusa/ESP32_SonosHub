@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+<specVersion><major>1</major><minor>0</minor></specVersion>
+<device>
+<deviceType>urn:schemas-upnp-org:device:ZonePlayer:1</deviceType>
+<friendlyName>192.168.1.50 - Sonos One - RINCON_000000000000001400</friendlyName>
+<manufacturer>Sonos, Inc.</manufacturer>
+<modelNumber>S18</modelNumber>
+<modelName>Sonos One</modelName>
+<roomName>Küche</roomName>
+<displayName>One</displayName>
+<deviceList>
+<device><deviceType>urn:schemas-upnp-org:device:MediaServer:1</deviceType><friendlyName>Media Server</friendlyName></device>
+<device><deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType><friendlyName>Küche - Sonos One Media Renderer</friendlyName></device>
+</deviceList>
+</device>
+</root>
