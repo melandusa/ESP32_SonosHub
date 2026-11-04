@@ -1,5 +1,7 @@
 #include "sonos/SonosClient.h"
 
+#include "sonos/LogoUrl.h"
+
 #include "platform/Log.h"
 
 #include <cstdlib>
@@ -66,6 +68,20 @@ CallStatus SonosClient::fetchDeviceInfo(const std::string& ip, DeviceInfo& out) 
     if (response.status != 200 || !parseDeviceDescription(response.body, out)) {
         return CallStatus::ParseError;
     }
+    return CallStatus::Ok;
+}
+
+CallStatus SonosClient::fetchAlbumArt(const std::string& streamUri, std::size_t maxBytes,
+                                      std::string& out) {
+    if (ip_.empty()) return CallStatus::NetworkError;
+    // Images take longer than SOAP calls; the speaker fetches them from the internet first.
+    platform::HttpResponse response = http_.get(albumArtProxyUrl(baseUrl(), streamUri), 3 * timeoutMs_);
+    if (response.status == 0) return CallStatus::NetworkError;
+    if (response.status != 200 || response.body.empty() || response.body.size() > maxBytes) {
+        LOGD("Album art: HTTP %d, %zu bytes", response.status, response.body.size());
+        return CallStatus::ParseError;
+    }
+    out = std::move(response.body);
     return CallStatus::Ok;
 }
 

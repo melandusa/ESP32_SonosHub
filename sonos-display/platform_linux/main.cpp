@@ -3,6 +3,7 @@
 #include "platform/Log.h"
 #include "sonos/SonosClient.h"
 #include "ui/Fonts.h"
+#include "ui/LogoDecoder.h"
 #include "ui/MainScreen.h"
 
 #include "CurlHttpClient.h"
@@ -128,14 +129,15 @@ int main(int argc, char** argv) {
 
     sonos::SonosClient client(*http);
     client.setDumpXml(options.dumpXml);
+    app::AppConfig config;
+    config.maxVolume = options.maxVolume;
     app::SonosService service(client, *discovery, options.ip);
+    service.setLogoDecoder(ui::decodeLogo, config.logoSizePx);  // before the worker starts
     linux_platform::ThreadWorker worker(
         [&service](const app::Command& command) { return service.execute(command); });
 
     linux_platform::SteadyClock clock;
     linux_platform::LogBacklight backlight;
-    app::AppConfig config;
-    config.maxVolume = options.maxVolume;
     app::AppController controller(worker, clock, backlight, config);
 
     lv_init();

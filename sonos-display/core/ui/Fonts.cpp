@@ -29,7 +29,10 @@ bool glyphDscWithoutSymbols(const lv_font_t* font, lv_font_glyph_dsc_t* dsc, uin
 }
 
 lv_font_t* create(int32_t size, const lv_font_t* symbolFallback) {
-    lv_font_t* font = lv_tiny_ttf_create_data(montserrat_medium_ttf, montserrat_medium_ttf_size, size);
+    // Kerning off: Tiny TTF looks up kerning pairs uncached for every character, which made a
+    // full redraw take over a second on the ESP32-S3.
+    lv_font_t* font = lv_tiny_ttf_create_data_ex(montserrat_medium_ttf, montserrat_medium_ttf_size, size,
+                                                 LV_FONT_KERNING_NONE, LV_TINY_TTF_CACHE_GLYPH_CNT);
     if (!font) return nullptr;
     gTtfGlyphDsc = font->get_glyph_dsc;
     font->get_glyph_dsc = glyphDscWithoutSymbols;

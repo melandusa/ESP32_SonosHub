@@ -47,6 +47,7 @@ void AppController::tick() {
             nextFavoritesMs_ = now + config_.favoritesIntervalMs;
         }
         flushVolume(now);
+        loadNextLogo(now);
     }
 
     updateDimming(now);
@@ -54,12 +55,16 @@ void AppController::tick() {
 
 uint32_t AppController::submit(Command command) {
     command.seq = nextSeq_++;
-    if (worker_.submit(command)) return command.seq;
+    if (worker_.submit(command)) {
+        ++commandsInFlight_;
+        return command.seq;
+    }
     LOGW("Worker queue full, dropping %s", commandName(command.type));
     return 0;
 }
 
 void AppController::handleResult(const Result& result, uint64_t now) {
+    if (commandsInFlight_ > 0) --commandsInFlight_;
     switch (result.type) {
     case CommandType::Discover:
         discoverInFlight_ = false;
@@ -80,6 +85,9 @@ void AppController::handleResult(const Result& result, uint64_t now) {
         break;
     case CommandType::SetVolume:
         break;
+    case CommandType::LoadLogo:
+        handleLogo(result, now);
+        return;  // logos are optional, their errors say nothing about the speaker
     }
     trackFailures(result, now);
 }
@@ -155,8 +163,49 @@ void AppController::handleFavorites(const Result& result) {
     LOGI("%zu radio favorite(s) loaded", result.favorites.size());
     for (const sonos::Favorite& fav : result.favorites) LOGI("  %s", fav.title.c_str());
     state_.favorites = result.favorites;
+
+    // Keep the logos of stations that are still there
+    std::map<std::string, LogoPtr> logos;
+    for (const sonos::Favorite& fav : state_.favorites) {
+        auto it = state_.logos.find(fav.uri);
+        if (it != state_.logos.end()) logos.insert(*it);
+    }
+    state_.logos = std::move(logos);
     updateActiveFavorite();
     markChanged();
+}
+
+void AppController::handleLogo(const Result& result, uint64_t now) {
+    if (result.networkFailed()) {
+        LOGD("Logo for %s: no response, retrying later", result.uri.c_str());
+        nextLogoMs_ = now + config_.logoRetryMs;
+        return;
+    }
+    const auto fav = std::find_if(state_.favorites.begin(), state_.favorites.end(),
+                                  [&](const sonos::Favorite& f) { return f.uri == result.uri; });
+    if (fav == state_.favorites.end()) return;
+    LOGI("Logo \"%s\": %s (%u ms)", fav->title.c_str(), result.logo ? "loaded" : "none",
+         static_cast<unsigned>(now - logoRequestedMs_));
+    state_.logos[result.uri] = result.logo;
+    if (result.logo) markChanged();
+}
+
+// Logos are fetched one at a time and only while the worker is idle, so a tap on a station
+// or the volume never waits behind several image downloads.
+void AppController::loadNextLogo(uint64_t now) {
+    if (config_.logoSizePx <= 0 || commandsInFlight_ > 0 || pendingVolume_ >= 0 ||
+        now < nextLogoMs_) {
+        return;
+    }
+    for (const sonos::Favorite& fav : state_.favorites) {
+        if (state_.logos.count(fav.uri) != 0) continue;
+        Command cmd;
+        cmd.type = CommandType::LoadLogo;
+        cmd.uri = fav.uri;
+        submit(cmd);
+        logoRequestedMs_ = now;
+        return;
+    }
 }
 
 void AppController::trackFailures(const Result& result, uint64_t now) {
@@ -221,6 +270,7 @@ void AppController::changeVolume(int delta) {
     if (state_.connection != Connection::Connected || !state_.volumeKnown) return;
     const int volume = std::clamp(state_.volume + delta, 0, config_.maxVolume);
     if (volume == state_.volume) return;
+    LOGD("Volume %d -> %d", state_.volume, volume);
     state_.volume = volume;
     pendingVolume_ = volume;
     markChanged();
@@ -263,17 +313,28 @@ void AppController::updateActiveFavorite() {
 
 void AppController::noteUserActivity() {
     lastActivityMs_ = clock_.nowMs();
-    if (dimmed_) {
-        dimmed_ = false;
-        backlight_.setLevel(config_.backlightBright);
-    }
+    setScreenPower(ScreenPower::On);
 }
 
 void AppController::updateDimming(uint64_t now) {
-    if (!dimmed_ && now - lastActivityMs_ >= config_.dimAfterMs) {
-        dimmed_ = true;
-        backlight_.setLevel(config_.backlightDim);
+    const uint64_t idle = now - lastActivityMs_;
+    if (idle >= config_.screenOffAfterMs) {
+        setScreenPower(ScreenPower::Off);
+    } else if (idle >= config_.dimAfterMs && screenPower_ == ScreenPower::On) {
+        setScreenPower(ScreenPower::Dimmed);
     }
+}
+
+void AppController::setScreenPower(ScreenPower power) {
+    if (power == screenPower_) return;
+    const bool offChanged = (power == ScreenPower::Off) != (screenPower_ == ScreenPower::Off);
+    screenPower_ = power;
+    switch (power) {
+    case ScreenPower::On: backlight_.setLevel(config_.backlightBright); break;
+    case ScreenPower::Dimmed: backlight_.setLevel(config_.backlightDim); break;
+    case ScreenPower::Off: backlight_.setLevel(0); break;
+    }
+    if (offChanged) markChanged();  // the UI shows or hides its wake-up overlay
 }
 
 } // namespace app

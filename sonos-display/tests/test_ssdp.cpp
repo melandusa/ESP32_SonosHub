@@ -1,8 +1,8 @@
-#include "PosixSsdpDiscovery.h"
+#include "sonos/Ssdp.h"
 
 #include <doctest/doctest.h>
 
-using linux_platform::parseSsdpResponse;
+using sonos::parseSsdpResponse;
 
 TEST_CASE("SSDP: IP from the LOCATION header of a ZonePlayer response") {
     const std::string response =

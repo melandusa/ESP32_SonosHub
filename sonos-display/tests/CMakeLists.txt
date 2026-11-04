@@ -12,8 +12,9 @@ add_executable(sonos_tests
   test_client.cpp
   test_controller.cpp
   test_ssdp.cpp
+  test_logo.cpp
 )
 target_compile_definitions(sonos_tests PRIVATE SONOS_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
-target_link_libraries(sonos_tests PRIVATE sonos_core sonos_platform_linux doctest::doctest sonos_warnings)
+target_link_libraries(sonos_tests PRIVATE sonos_core sonos_ui sonos_platform_linux doctest::doctest sonos_warnings)
 
 add_test(NAME sonos_tests COMMAND sonos_tests)

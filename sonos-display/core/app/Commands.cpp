@@ -10,6 +10,7 @@ const char* commandName(CommandType type) {
     case CommandType::PlayFavorite: return "PlayFavorite";
     case CommandType::SetVolume: return "SetVolume";
     case CommandType::Stop: return "Stop";
+    case CommandType::LoadLogo: return "LoadLogo";
     }
     return "?";
 }

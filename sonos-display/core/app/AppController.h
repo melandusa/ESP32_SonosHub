@@ -28,6 +28,9 @@ public:
     void volumeDown() { changeVolume(-config_.volumeStep); }
     void noteUserActivity();
 
+    // Screen saver active (backlight off): the next touch must only wake the display.
+    bool isScreenOff() const { return screenPower_ == ScreenPower::Off; }
+
     const AppState& state() const { return state_; }
     const AppConfig& config() const { return config_; }
     // Incremented on every state change; lets the UI skip redundant redraws.
@@ -40,6 +43,8 @@ private:
     void handleDiscovery(const Result& result, uint64_t now);
     void handleStatus(const Result& result);
     void handleFavorites(const Result& result);
+    void handleLogo(const Result& result, uint64_t now);
+    void loadNextLogo(uint64_t now);
     void trackFailures(const Result& result, uint64_t now);
     void enterUnreachable(uint64_t now);
 
@@ -66,6 +71,9 @@ private:
     uint64_t nextFavoritesMs_ = 0;
     uint32_t backoffMs_ = 0;
     int consecutiveFailures_ = 0;
+    int commandsInFlight_ = 0;
+    uint64_t nextLogoMs_ = 0;
+    uint64_t logoRequestedMs_ = 0;
 
     // Status results from commands issued before the latest local change are stale.
     uint32_t playbackChangeSeq_ = 0;
@@ -75,8 +83,11 @@ private:
     bool volumeSent_ = false;
     uint64_t lastVolumeSendMs_ = 0;
 
+    enum class ScreenPower { On, Dimmed, Off };
+    void setScreenPower(ScreenPower power);
+
     uint64_t lastActivityMs_ = 0;
-    bool dimmed_ = false;
+    ScreenPower screenPower_ = ScreenPower::On;
 };
 
 } // namespace app

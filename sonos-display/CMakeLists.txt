@@ -62,6 +62,8 @@ add_library(sonos_core STATIC
   core/sonos/DidlParser.cpp
   core/sonos/DeviceDescription.cpp
   core/sonos/SonosClient.cpp
+  core/sonos/Ssdp.cpp
+  core/sonos/LogoUrl.cpp
   core/app/Commands.cpp
   core/app/SonosService.cpp
   core/app/AppController.cpp
@@ -84,6 +86,7 @@ add_library(sonos_ui STATIC
   core/ui/Fonts.cpp
   core/ui/Styles.cpp
   core/ui/MainScreen.cpp
+  core/ui/LogoDecoder.cpp
   ${SONOS_FONT_C}
 )
 target_link_libraries(sonos_ui PUBLIC sonos_core lvgl PRIVATE sonos_warnings)

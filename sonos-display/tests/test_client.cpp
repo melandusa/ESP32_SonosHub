@@ -119,3 +119,24 @@ TEST_CASE("SonosClient: device description") {
     CHECK(http.lastUrl == "http://192.168.1.50:1400/xml/device_description.xml");
     CHECK(info.roomName == "Küche");
 }
+
+TEST_CASE("SonosClient: album art from the speaker's proxy") {
+    FakeHttp http;
+    SonosClient client(http);
+    client.setDevice("192.168.1.50");
+    std::string image;
+
+    http.reply = {200, "\x89PNG..."};
+    CHECK(client.fetchAlbumArt("x-sonosapi-stream:s1?sid=303", 1024, image) == CallStatus::Ok);
+    CHECK(http.lastUrl == "http://192.168.1.50:1400/getaa?s=1&u=x-sonosapi-stream%3As1%3Fsid%3D303");
+    CHECK(image == "\x89PNG...");
+
+    http.reply = {404, ""};
+    CHECK(client.fetchAlbumArt("aac://x", 1024, image) == CallStatus::ParseError);
+
+    http.reply = {200, std::string(2000, 'x')};
+    CHECK(client.fetchAlbumArt("aac://x", 1024, image) == CallStatus::ParseError);
+
+    http.offline = true;
+    CHECK(client.fetchAlbumArt("aac://x", 1024, image) == CallStatus::NetworkError);
+}

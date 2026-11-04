@@ -41,31 +41,61 @@ ctest --test-dir build --output-on-failure      # oder: ./build/tests/sonos_test
 ## Bedienung
 
 - Kachel antippen: Sender starten. Der laufende Sender ist gelb hervorgehoben.
+- Senderlogos: Hat der Lautsprecher ein Logo zum Sender, zeigt die Kachel es (88 px) mit dem
+  Namen einzeilig darunter, sonst nur den Namen.
 - Bei mehr als 6 Favoriten zeigt die letzte Kachel „› Seite x/y“ und blättert weiter.
-- `−` / `+`: Lautstärke in 3er-Schritten (gedrückt halten wiederholt), `AUS`: Stopp.
-- Nach 2 min ohne Berührung wird gedimmt (in der Simulation nur als Log-Zeile `Backlight -> 15 %`).
+- `−` / `+`: Lautstärke in 1er-Schritten (gedrückt halten wiederholt), `AUS`: Stopp.
+- Bildschirmschoner: nach 2 min ohne Berührung auf 15 % gedimmt, nach 10 min Hintergrundbeleuchtung aus.
+  Im Aus-Zustand weckt die erste Berührung nur auf und löst nichts aus.
+  (In der Simulation nur als Log-Zeile `Backlight -> …`.)
 
 Es werden nur Radio-Favoriten angezeigt (`x-sonosapi-stream:`, `x-sonosapi-radio:`,
 `x-rincon-mp3radio:`, `aac:`, `hls-radio:`). Playlists, Alben, einzelne Titel und
 Sonos-Radio-Shortcuts ohne Stream-URI werden ausgeblendet und geloggt.
+
+## ESP32-S3 (Guition 4848S040)
+
+PlatformIO-Projekt im selben Ordner (`platformio.ini`), Quellen in `platform_esp32/`, dazu
+`core/` und `lv_conf.h` unverändert. Plattform espressif32 8.0.0 (Arduino-Core 3.3),
+LVGL 9.2.2, GFX Library for Arduino 1.6.9 (ST7701-RGB-Panel), WiFiManager 2.0.17, tinyxml2 11.0.0.
+
+```sh
+pio run                        # bauen (oder in VS Code: PlatformIO → Build)
+pio run -t upload              # flashen
+pio device monitor             # serielles Log, 115200 Baud
+```
+
+Beim ersten Start ohne gespeichertes WLAN öffnet das Display den Hotspot
+**„SonosDisplay-Setup“**. Mit dem Handy verbinden, WLAN auswählen und Passwort eingeben.
+Danach verbindet es sich bei jedem Start automatisch.
+
+Lautsprecher-IP und Lautstärke-Limit sind vorerst Konstanten in `platform_esp32/main.cpp`
+(`kFixedSpeakerIp`, `kMaxVolume`).
+
+**Hardware-Stand:**
+- Bildausrichtung: `kRotation = 3` (passt in den Halter; 0 = Panel-Grundausrichtung), Touch wird automatisch mitgedreht
+- ~~Touch-Controller~~ geprüft: GT911 an 0x5D
+- ~~Flackern~~ behoben durch Bounce-Buffer (`kLcdBounceBufferPx`)
+- Hintergrundbeleuchtung per PWM auf GPIO 38 (Dimmen/Aus)
 
 ## Architektur
 
 ```
 core/                      portabel: nur C++17-Standardbibliothek, LVGL, tinyxml2
   platform/   Interfaces: IHttpClient, IDiscovery, IClock, IBacklight, ILogger (+ Log.h)
-  sonos/      SoapBuilder, SoapParser, DidlParser, DeviceDescription, SonosClient
+  sonos/      SoapBuilder, SoapParser, DidlParser, DeviceDescription, SonosClient, Ssdp, LogoUrl
   app/        Commands, IWorker, SonosService (Worker-Seite), AppController (UI-Seite)
-  ui/         MainScreen, Styles, Fonts
+  ui/         MainScreen, Styles, Fonts, LogoDecoder
 platform_linux/            CurlHttpClient, PosixSsdpDiscovery, ThreadWorker, MockSonos, main.cpp
+platform_esp32/            EspHttpClient, WifiUdpSsdpDiscovery, FreeRtosWorker, Display, Gt911Touch, main.cpp
 tests/                     doctest; fixtures/ (Format-Beispiele) und fixtures/real/ (Mitschnitt Sonos Ray)
 ```
 
 **Threading:** Die UI ruft nur `AppController` auf. Dieser schickt `Command`s an einen
 `IWorker` und übernimmt die `Result`s in `tick()`, das ein `lv_timer` alle 30 ms im
 UI-Thread aufruft. LVGL wird nur im UI-Thread angefasst. Der Worker (Linux: `std::thread`)
-führt die Befehle blockierend über `SonosService` aus. Für den ESP32 wird `ThreadWorker`
-durch einen FreeRTOS-Task mit Queue ersetzt, `core/` bleibt gleich.
+führt die Befehle blockierend über `SonosService` aus. Auf dem ESP32 übernimmt
+`FreeRtosWorker` (Task auf Core 0, Queues mit Zeigern) diese Rolle, `core/` bleibt gleich.
 
 **Verhalten:**
 - Status (`GetTransportInfo`, `GetVolume`, `GetMediaInfo`) alle 2 s, Favoriten beim Start und alle 10 min.
@@ -76,6 +106,12 @@ durch einen FreeRTOS-Task mit Queue ersetzt, `core/` bleibt gleich.
   (Sequenznummern), damit die Anzeige nicht zurückspringt.
 - 3 Netzwerkfehler in Folge → „Lautsprecher nicht erreichbar – suche…“, neue Discovery
   nach 5 s, 10 s, 20 s, dann alle 30 s. SOAP-Fehler (z. B. „Stop“ im Stopp-Zustand) zählen nicht.
+- Senderlogos kommen vom Bild-Proxy des Lautsprechers (`http://<ip>:1400/getaa?s=1&u=<Stream-URI>`,
+  bei TuneIn 600×600-PNG). Die `albumArtURI`s der Favoriten leiten meist nur per HTTPS auf dasselbe
+  Bild weiter, der Proxy braucht kein TLS. Der Worker lädt ein Logo nach dem anderen und nur, wenn
+  sonst nichts ansteht, dekodiert es mit LVGLs lodepng und verkleinert es auf 88×88 (ARGB8888).
+  Fehlt ein Logo (404) oder ist es kein PNG (z. B. progressives JPEG), bleibt die Text-Kachel.
+  Netzwerkfehler beim Logo zählen nicht als Lautsprecher-Ausfall und werden nach 1 min wiederholt.
 - Discovery prüft jedes gefundene Gerät mit `GetTransportInfo`. Surround-Lautsprecher und Subs
   eines Heimkino-Sets antworten mit HTTP 500 und werden übersprungen.
 
@@ -96,4 +132,6 @@ muss leer sein.
 
 - Gruppen: Befehle gehen an das gewählte Gerät, nicht an einen Gruppen-Koordinator (`TODO(groups)` in `SonosClient.h` und `SonosService.cpp`).
 - Bei mehreren steuerbaren Lautsprechern wird der erste genommen (nach einer Wiederverbindung bevorzugt der bisherige).
-- Senderlogos (M7) sind vorbereitet (`Favorite::albumArtUri`, absolute URLs), aber nicht umgesetzt.
+- Senderlogos nur als PNG; JPEG-Logos (z. B. Sonos-Radio-Sender, Amazon) bleiben Text-Kacheln.
+- Ein Logo zu laden dauert auf dem ESP32 1,5–2,5 s. Ein Tipp in dieser Zeit (nur kurz nach dem
+  Start oder nach geänderten Favoriten) wartet, bis das laufende Logo fertig ist.

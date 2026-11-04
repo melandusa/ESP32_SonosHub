@@ -8,6 +8,7 @@
 #include "sonos/SoapParser.h"
 #include "sonos/Types.h"
 
+#include <cstddef>
 #include <string>
 
 namespace sonos {
@@ -29,6 +30,9 @@ public:
 
     CallStatus fetchDeviceInfo(const std::string& ip, DeviceInfo& out);
     CallStatus browseFavorites(FavoritesParseResult& out);
+    // Station logo from the speaker's art proxy (encoded image, usually PNG).
+    // ParseError if the speaker has none (404) or it is larger than maxBytes.
+    CallStatus fetchAlbumArt(const std::string& streamUri, std::size_t maxBytes, std::string& out);
 
     CallStatus setAVTransportUri(const std::string& uri, const std::string& metadata);
     CallStatus play();

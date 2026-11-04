@@ -8,11 +8,17 @@ namespace app {
 
 namespace {
 constexpr int kDiscoveryTimeoutMs = 1500;
+constexpr std::size_t kMaxLogoBytes = 512 * 1024;
 }
 
 SonosService::SonosService(sonos::SonosClient& client, platform::IDiscovery& discovery,
                            std::string fixedIp)
     : client_(client), discovery_(discovery), fixedIp_(std::move(fixedIp)) {}
+
+void SonosService::setLogoDecoder(LogoDecoder decoder, int sizePx) {
+    logoDecoder_ = std::move(decoder);
+    logoSizePx_ = sizePx;
+}
 
 Result SonosService::execute(const Command& command) {
     Result result;
@@ -38,6 +44,9 @@ Result SonosService::execute(const Command& command) {
         break;
     case CommandType::Stop:
         result.status = client_.stop();
+        break;
+    case CommandType::LoadLogo:
+        loadLogo(command, result);
         break;
     }
 
@@ -104,6 +113,25 @@ void SonosService::refreshStatus(Result& result) {
     // Media info is read on every poll: a station change from the Sonos app often keeps
     // the transport state at PLAYING, so it would go unnoticed otherwise.
     if (result.ok()) result.status = client_.getMediaInfo(result.info.media);
+}
+
+void SonosService::loadLogo(const Command& command, Result& result) {
+    result.uri = command.uri;
+    if (!logoDecoder_) {
+        result.status = sonos::CallStatus::ParseError;
+        return;
+    }
+    std::string encoded;
+    result.status = client_.fetchAlbumArt(command.uri, kMaxLogoBytes, encoded);
+    if (!result.ok()) return;
+
+    auto logo = std::make_shared<LogoImage>();
+    if (!logoDecoder_(encoded, logoSizePx_, *logo)) {
+        LOGD("Logo for %s: cannot decode %zu bytes", command.uri.c_str(), encoded.size());
+        result.status = sonos::CallStatus::ParseError;
+        return;
+    }
+    result.logo = std::move(logo);
 }
 
 } // namespace app

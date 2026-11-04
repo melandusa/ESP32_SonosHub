@@ -77,6 +77,7 @@ struct Fixture {
     static AppConfig makeConfig() {
         AppConfig c;
         c.maxVolume = 60;
+        c.volumeStep = 3;
         return c;
     }
 
@@ -349,4 +350,121 @@ TEST_CASE("Controller: display dims after 2 min without touch") {
 
     f.controller.noteUserActivity();
     CHECK(f.backlight.level == 100);
+    CHECK_FALSE(f.controller.isScreenOff());
+}
+
+TEST_CASE("Controller: screen saver switches the backlight off after 10 min") {
+    Fixture f;
+    f.connect();
+    f.clock.now += 2 * 60 * 1000;
+    f.controller.tick();
+    CHECK_FALSE(f.controller.isScreenOff());
+
+    const uint32_t version = f.controller.version();
+    f.clock.now += 8 * 60 * 1000;
+    f.controller.tick();
+    CHECK(f.backlight.level == 0);
+    CHECK(f.controller.isScreenOff());
+    CHECK(f.controller.version() != version);  // UI must show its wake-up overlay
+
+    f.controller.noteUserActivity();
+    CHECK(f.backlight.level == 100);
+    CHECK_FALSE(f.controller.isScreenOff());
+}
+
+TEST_CASE("Controller: default volume step is 1") {
+    CHECK(AppConfig{}.volumeStep == 1);
+}
+
+namespace {
+
+void replyLogo(FakeWorker& worker, const Command& command, CallStatus status) {
+    Result result;
+    result.type = CommandType::LoadLogo;
+    result.seq = command.seq;
+    result.status = status;
+    result.uri = command.uri;
+    if (status == CallStatus::Ok) result.logo = std::make_shared<LogoImage>();
+    worker.results.push_back(result);
+}
+
+} // namespace
+
+TEST_CASE("Controller: logos load one at a time while the worker is idle") {
+    Fixture f;
+    auto commands = f.connect();
+    REQUIRE(count(commands, CommandType::LoadLogo) == 1);
+    const Command first = *find(commands, CommandType::LoadLogo);
+    CHECK(first.uri == "x-sonosapi-stream:s1");
+
+    // Nothing else while the first one is loading
+    f.controller.tick();
+    CHECK(count(f.worker.take(), CommandType::LoadLogo) == 0);
+
+    const uint32_t version = f.controller.version();
+    replyLogo(f.worker, first, CallStatus::Ok);
+    f.controller.tick();
+    CHECK(f.controller.version() != version);
+    CHECK(f.controller.state().logos.at("x-sonosapi-stream:s1").get() != nullptr);
+    commands = f.worker.take();
+    REQUIRE(count(commands, CommandType::LoadLogo) == 1);
+    const Command second = *find(commands, CommandType::LoadLogo);
+    CHECK(second.uri == "x-sonosapi-stream:s3");
+
+    // No logo for this station: remembered, not retried, and not a speaker failure
+    for (int i = 0; i < 3; ++i) {
+        replyLogo(f.worker, second, CallStatus::ParseError);
+        f.controller.tick();
+    }
+    CHECK(f.controller.state().logos.count("x-sonosapi-stream:s3") == 1);
+    CHECK(f.controller.state().logos.at("x-sonosapi-stream:s3").get() == nullptr);
+    CHECK(f.controller.state().connection == Connection::Connected);
+    f.clock.now += 10 * 60 * 1000;
+    f.controller.tick();
+    CHECK(count(f.worker.take(), CommandType::LoadLogo) == 0);
+}
+
+TEST_CASE("Controller: user commands go first, logos wait") {
+    Fixture f;
+    auto commands = f.connect();
+    const Command logo = *find(commands, CommandType::LoadLogo);
+
+    f.controller.playFavorite(1);
+    commands = f.worker.take();
+    const Command* play = find(commands, CommandType::PlayFavorite);
+    REQUIRE(play != nullptr);
+    const Command playCommand = *play;
+
+    replyLogo(f.worker, logo, CallStatus::Ok);
+    f.controller.tick();
+    CHECK(count(f.worker.take(), CommandType::LoadLogo) == 0);  // play still in flight
+
+    f.worker.reply(playCommand);
+    f.controller.tick();
+    CHECK(count(f.worker.take(), CommandType::LoadLogo) == 1);
+}
+
+TEST_CASE("Controller: logo network errors are retried later and do not disconnect") {
+    Fixture f;
+    auto commands = f.connect();
+    for (int i = 0; i < 3; ++i) {
+        const Command* logo = find(commands, CommandType::LoadLogo);
+        REQUIRE(logo != nullptr);
+        replyLogo(f.worker, *logo, CallStatus::NetworkError);
+        f.controller.tick();
+        commands = f.worker.take();
+        CHECK(count(commands, CommandType::LoadLogo) == 0);
+        f.clock.now += AppConfig{}.logoRetryMs;
+        f.controller.tick();
+        commands = f.worker.take();
+        // A status poll may be due as well; answer it so the worker becomes idle
+        if (const Command* status = find(commands, CommandType::RefreshStatus)) {
+            f.worker.reply(*status);
+            f.controller.tick();
+            auto more = f.worker.take();
+            commands.insert(commands.end(), more.begin(), more.end());
+        }
+    }
+    CHECK(f.controller.state().connection == Connection::Connected);
+    CHECK(f.controller.state().logos.empty());
 }
