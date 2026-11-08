@@ -4,8 +4,9 @@
 #include "platform/Log.h"
 
 #include <HTTPClient.h>
-#include <HTTPUpdate.h>
 #include <NetworkClientSecure.h>
+#include <Update.h>
+#include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 
 // Mozilla's root certificates, embedded via board_build.embed_files (see certs/README.md)
@@ -21,6 +22,21 @@ constexpr int kTimeoutMs = 15000;
 
 void useCaBundle(NetworkClientSecure& client) {
     client.setCACertBundle(kCaBundleStart, static_cast<size_t>(kCaBundleEnd - kCaBundleStart));
+}
+
+void configure(HTTPClient& http) {
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // GitHub redirects to its CDN
+    http.setConnectTimeout(kTimeoutMs);
+    http.setTimeout(kTimeoutMs);
+}
+
+void logRequestError(const char* what, int code, NetworkClientSecure& client) {
+    char tlsError[100] = "";
+    client.lastError(tlsError, sizeof(tlsError));
+    LOGW("%s: HTTP %d (%s), TLS: %s, internal heap %u KB free, largest block %u KB", what, code,
+         HTTPClient::errorToString(code).c_str(), tlsError,
+         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
 }
 
 } // namespace
@@ -64,9 +80,7 @@ void OtaUpdater::runCheck() {
     NetworkClientSecure client;
     useCaBundle(client);
     HTTPClient http;
-    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // GitHub redirects to its CDN
-    http.setConnectTimeout(kTimeoutMs);
-    http.setTimeout(kTimeoutMs);
+    configure(http);
 
     app::UpdateManifest manifest;
     bool ok = false;
@@ -76,7 +90,7 @@ void OtaUpdater::runCheck() {
             ok = app::parseUpdateManifest(http.getString().c_str(), manifest);
             if (!ok) LOGW("Update check: unreadable version.json");
         } else {
-            LOGW("Update check: HTTP %d (%s)", code, HTTPClient::errorToString(code).c_str());
+            logRequestError("Update check", code, client);
         }
         http.end();
     }
@@ -100,23 +114,43 @@ void OtaUpdater::runInstall() {
     LOGI("Update: downloading %s", firmwareUrl_.c_str());
     NetworkClientSecure client;
     useCaBundle(client);
-    client.setTimeout(kTimeoutMs / 1000);
+    HTTPClient http;
+    configure(http);
+    http.useHTTP10(true);  // plain body with Content-Length, no chunked encoding to undo
+    if (!http.begin(client, firmwareUrl_.c_str())) {
+        state_ = State::Failed;
+        return;
+    }
 
-    HTTPUpdate updater(kTimeoutMs);
-    updater.rebootOnUpdate(false);  // the UI shows a message first
-    updater.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-    updater.onProgress([this](int done, int total) {
-        if (total > 0) progress_ = static_cast<int>(int64_t(done) * 100 / total);
-    });
+    bool ok = false;
+    const int code = http.GET();
+    const int size = http.getSize();
+    if (code != HTTP_CODE_OK || size <= 0) {
+        logRequestError("Update download", code, client);
+    } else if (!Update.begin(static_cast<size_t>(size))) {
+        LOGW("Update: %s", Update.errorString());
+    } else {
+        // The new image goes into the unused OTA slot; the running firmware stays untouched,
+        // so an aborted download or power loss is harmless. end() verifies the image.
+        Update.onProgress([this](size_t done, size_t total) {
+            if (total > 0) progress_ = static_cast<int>(uint64_t(done) * 100 / total);
+        });
+        const int written = static_cast<int>(Update.writeStream(*http.getStreamPtr()));
+        if (written != size) {
+            LOGW("Update: download incomplete (%d of %d bytes)", written, size);
+            Update.abort();
+        } else if (!Update.end()) {
+            LOGW("Update: %s", Update.errorString());
+        } else {
+            ok = true;
+        }
+    }
+    http.end();
 
-    // The new image goes into the unused OTA slot; the running firmware stays untouched,
-    // so an aborted download or power loss is harmless.
-    const HTTPUpdateResult result = updater.update(client, firmwareUrl_.c_str());
-    if (result == HTTP_UPDATE_OK) {
+    if (ok) {
         LOGI("Update: version %d installed", availableVersion_.load());
         state_ = State::Installed;
     } else {
-        LOGW("Update failed: %s", updater.getLastErrorString().c_str());
         state_ = State::Failed;
     }
 }
