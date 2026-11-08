@@ -1,0 +1,22 @@
+# Unit tests (Linux build of the portable core) on every push and pull request.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: sonos-display
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libsdl2-dev libcurl4-openssl-dev
+      - name: Build
+        run: cmake -S . -B build -G Ninja && cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

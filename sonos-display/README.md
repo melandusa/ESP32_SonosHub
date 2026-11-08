@@ -65,12 +65,45 @@ pio run -t upload              # flashen
 pio device monitor             # serielles Log, 115200 Baud
 ```
 
-Beim ersten Start ohne gespeichertes WLAN öffnet das Display den Hotspot
-**„SonosDisplay-Setup“**. Mit dem Handy verbinden, WLAN auswählen und Passwort eingeben.
-Danach verbindet es sich bei jedem Start automatisch.
+### Einrichtung (WLAN, Lautsprecher, Lautstärke-Grenze)
 
-Lautsprecher-IP und Lautstärke-Limit sind vorerst Konstanten in `platform_esp32/main.cpp`
-(`kFixedSpeakerIp`, `kMaxVolume`).
+Findet das Display beim Start kein gespeichertes WLAN (oder ist es nach 15 s nicht erreichbar),
+öffnet es den Hotspot **„SonosDisplay-Setup“**. Mit dem Handy verbinden, die Seite öffnet sich
+meist von selbst (sonst `192.168.4.1`). Unter „Configure WiFi“ WLAN und Passwort eingeben,
+darunter optional:
+
+- **Lautsprecher-IP**: leer lassen = automatisch suchen
+- **Maximale Lautstärke** (1–100, Standard 60)
+
+Nach dem Speichern verbindet sich das Display und startet einmal neu. Die Einstellungen liegen
+im NVS und bleiben bei Updates erhalten.
+
+**WLAN neu einrichten am Gerät:** Beim Einschalten den Finger auf das Display legen und
+5 s liegen lassen (Countdown oben). Dann sind die WLAN-Daten gelöscht und der Hotspot öffnet sich.
+
+### Firmware-Updates per WLAN
+
+Das Display prüft 2 min nach dem Start und danach täglich um 3 Uhr
+`https://github.com/melandusa/ESP32_SonosHub/releases/latest/download/version.json`.
+Ist dort eine höhere Versionsnummer, installiert es `firmware.bin`, sobald niemand das Display
+nutzt (Bildschirm aus, keine Musik), und startet neu. HTTPS mit Zertifikatsprüfung
+(Mozilla-Stammzertifikate in `platform_esp32/certs/`).
+
+Sicherheit: Die neue Firmware landet im zweiten App-Bereich des Flash, die laufende bleibt
+unangetastet. Erreicht die neue Firmware nach dem Neustart nicht innerhalb von 5 min das WLAN
+(oder stürzt sie vorher ab), startet der Bootloader wieder die alte.
+
+**Neue Version veröffentlichen:**
+
+```sh
+echo 2 > VERSION                       # Versionsnummer erhöhen
+git commit -am "Version 2"
+git tag v2 && git push && git push origin v2
+```
+
+Der Workflow `.github/workflows/release.yml` baut die Firmware und legt das Release mit
+`firmware.bin` und `version.json` an (Tag und `VERSION` müssen übereinstimmen).
+Die erste Firmware mit Update-Funktion muss einmal per USB geflasht werden.
 
 **Hardware-Stand:**
 - Bildausrichtung: `kRotation = 3` (passt in den Halter; 0 = Panel-Grundausrichtung), Touch wird automatisch mitgedreht
@@ -84,10 +117,11 @@ Lautsprecher-IP und Lautstärke-Limit sind vorerst Konstanten in `platform_esp32
 core/                      portabel: nur C++17-Standardbibliothek, LVGL, tinyxml2
   platform/   Interfaces: IHttpClient, IDiscovery, IClock, IBacklight, ILogger (+ Log.h)
   sonos/      SoapBuilder, SoapParser, DidlParser, DeviceDescription, SonosClient, Ssdp, LogoUrl
-  app/        Commands, IWorker, SonosService (Worker-Seite), AppController (UI-Seite)
+  app/        Commands, IWorker, SonosService (Worker-Seite), AppController (UI-Seite), UpdateManifest
   ui/         MainScreen, Styles, Fonts, LogoDecoder
 platform_linux/            CurlHttpClient, PosixSsdpDiscovery, ThreadWorker, MockSonos, main.cpp
-platform_esp32/            EspHttpClient, WifiUdpSsdpDiscovery, FreeRtosWorker, Display, Gt911Touch, main.cpp
+platform_esp32/            EspHttpClient, WifiUdpSsdpDiscovery, FreeRtosWorker, Display, Gt911Touch,
+                           Settings, OtaUpdater, main.cpp
 tests/                     doctest; fixtures/ (Format-Beispiele) und fixtures/real/ (Mitschnitt Sonos Ray)
 ```
 

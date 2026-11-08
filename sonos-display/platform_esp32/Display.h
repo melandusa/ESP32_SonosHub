@@ -8,4 +8,7 @@ namespace esp_platform {
 // Call after lv_init(). Returns nullptr if the panel could not be started.
 lv_display_t* initDisplayAndTouch();
 
+// Direct touch query, independent of LVGL (used for the WLAN reset gesture at startup).
+bool isTouchPressed();
+
 } // namespace esp_platform

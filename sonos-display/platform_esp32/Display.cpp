@@ -46,6 +46,12 @@ void readTouch(lv_indev_t* /*indev*/, lv_indev_data_t* data) {
 
 } // namespace
 
+bool isTouchPressed() {
+    int16_t x = 0;
+    int16_t y = 0;
+    return gTouch.read(x, y);
+}
+
 lv_display_t* initDisplayAndTouch() {
     auto* bus = new Arduino_SWSPI(GFX_NOT_DEFINED /* DC */, board::kLcdCs, board::kLcdSck,
                                   board::kLcdMosi, GFX_NOT_DEFINED /* MISO */);

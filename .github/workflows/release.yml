@@ -1,0 +1,54 @@
+# Builds the ESP32 firmware for a version tag (v1, v2, ...) and publishes it as a GitHub release.
+# The displays fetch releases/latest/download/version.json and install firmware.bin from it.
+name: Release firmware
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: sonos-display
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match VERSION
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION ($version)"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('sonos-display/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+
+      - name: Build firmware
+        run: pio run
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p dist
+          cp .pio/build/guition_4848s040/firmware.bin dist/firmware.bin
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/firmware.bin"
+          printf '{"version": %s, "url": "%s"}\n' "$version" "$url" > dist/version.json
+          gh release create "$GITHUB_REF_NAME" dist/firmware.bin dist/version.json \
+            --title "Version $version" --notes "Firmware für Guition ESP32-S3-4848S040." --latest

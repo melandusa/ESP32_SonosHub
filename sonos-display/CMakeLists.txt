@@ -67,6 +67,7 @@ add_library(sonos_core STATIC
   core/app/Commands.cpp
   core/app/SonosService.cpp
   core/app/AppController.cpp
+  core/app/UpdateManifest.cpp
 )
 target_include_directories(sonos_core PUBLIC core)
 target_link_libraries(sonos_core PUBLIC tinyxml2::tinyxml2 PRIVATE sonos_warnings)
