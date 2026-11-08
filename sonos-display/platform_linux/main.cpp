@@ -149,6 +149,7 @@ int main(int argc, char** argv) {
 
     ui::MainScreen screen(controller);
     screen.create(lv_screen_active());
+    screen.setVersionText("Simulation");
     controller.start();
 
     UiContext context{&controller, &screen};

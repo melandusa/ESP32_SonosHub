@@ -236,6 +236,7 @@ void setup() {
     controller = new app::AppController(*worker, systemClock, backlight, config);
     screen = new ui::MainScreen(*controller);
     screen->create(lv_screen_active());
+    screen->setVersionText("Version " + std::to_string(SONOS_FIRMWARE_VERSION));
 
     WiFi.mode(WIFI_STA);
     if (wifiResetRequested()) {

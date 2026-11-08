@@ -21,6 +21,8 @@ public:
     // Platform message shown in the header instead of the speaker status (e.g. WLAN setup);
     // empty to clear.
     void setSystemMessage(const std::string& message);
+    // Shown in the empty station area until the favorites are loaded (e.g. "Version 3").
+    void setVersionText(const std::string& text);
 
 private:
     static constexpr int kTileCount = 6;
@@ -52,6 +54,7 @@ private:
     uint32_t renderedVersion_ = UINT32_MAX;
     int page_ = 0;
     std::string systemMessage_;
+    std::string versionText_;
 
     lv_obj_t* titleLabel_ = nullptr;
     lv_obj_t* statusLabel_ = nullptr;
@@ -66,6 +69,7 @@ private:
     lv_obj_t* stopButton_ = nullptr;
     lv_obj_t* volumeBar_ = nullptr;
     lv_obj_t* volumeLabel_ = nullptr;
+    lv_obj_t* versionLabel_ = nullptr;
     lv_obj_t* wakeOverlay_ = nullptr;
 };
 

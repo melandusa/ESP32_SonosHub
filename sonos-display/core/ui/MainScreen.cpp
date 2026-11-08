@@ -105,6 +105,11 @@ void MainScreen::create(lv_obj_t* screen) {
     createHeader(screen);
     createTiles(screen);
     createControls(screen);
+
+    versionLabel_ = createLabel(screen, fonts::small(), styles::textDim());
+    lv_obj_align(versionLabel_, LV_ALIGN_TOP_RIGHT, -kMargin - 6, kGridTop + kGridHeight - 34);
+    lv_obj_add_flag(versionLabel_, LV_OBJ_FLAG_HIDDEN);
+
     createWakeOverlay(screen);
     render();
 }
@@ -250,6 +255,12 @@ void MainScreen::setSystemMessage(const std::string& message) {
     render();
 }
 
+void MainScreen::setVersionText(const std::string& text) {
+    if (text == versionText_) return;
+    versionText_ = text;
+    render();
+}
+
 void MainScreen::render() {
     const app::AppState& state = controller_.state();
     renderedVersion_ = controller_.version();
@@ -258,6 +269,12 @@ void MainScreen::render() {
     renderHeader(state);
     renderTiles(state);
     renderControls(state);
+    if (!versionText_.empty() && state.favorites.empty()) {
+        setTextIfChanged(versionLabel_, versionText_.c_str());
+        lv_obj_remove_flag(versionLabel_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(versionLabel_, LV_OBJ_FLAG_HIDDEN);
+    }
     if (controller_.isScreenOff()) {
         lv_obj_remove_flag(wakeOverlay_, LV_OBJ_FLAG_HIDDEN);
     } else {
