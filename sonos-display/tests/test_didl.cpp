@@ -146,3 +146,10 @@ TEST_CASE("isSameStream") {
     CHECK_FALSE(isSameStream("x-sonosapi-stream:tunein%3a7487", "x-sonosapi-stream:tunein%3a9479"));
     CHECK_FALSE(isSameStream("", ""));
 }
+
+TEST_CASE("mediaSourceOf: speaker inputs") {
+    CHECK(mediaSourceOf("x-sonos-htastream:RINCON_000E5800000101400:spdif") == MediaSource::TvInput);
+    CHECK(mediaSourceOf("x-rincon-stream:RINCON_000E5800000101400") == MediaSource::LineIn);
+    CHECK(mediaSourceOf("x-sonosapi-stream:tunein%3a9479?sid=303") == MediaSource::Other);
+    CHECK(mediaSourceOf("") == MediaSource::Other);
+}

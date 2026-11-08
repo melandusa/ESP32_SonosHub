@@ -24,6 +24,10 @@ TransportState parseTransportState(const std::string& value);
 // query flags and percent-encoding case than the favorite, so only the part before '?'
 // is compared, case-insensitively.
 bool isSameStream(const std::string& a, const std::string& b);
+
+// Inputs of the speaker itself; their metadata title is just the device ID (RINCON_...).
+enum class MediaSource { Other, TvInput, LineIn };
+MediaSource mediaSourceOf(const std::string& uri);
 const char* transportStateName(TransportState state);
 
 } // namespace sonos

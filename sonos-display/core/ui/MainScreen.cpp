@@ -307,8 +307,13 @@ void MainScreen::renderHeader(const app::AppState& state) {
     // Station while something is selected, otherwise the room name
     const bool hasStation = connected && !state.currentTitle.empty() &&
                             state.transport != sonos::TransportState::Stopped;
-    const std::string title = hasStation ? std::string(LV_SYMBOL_AUDIO " ") + state.currentTitle
-                                         : state.roomName;
+    std::string current = state.currentTitle;
+    switch (sonos::mediaSourceOf(state.currentUri)) {
+    case sonos::MediaSource::TvInput: current = "TV-Eingang"; break;
+    case sonos::MediaSource::LineIn: current = "Audio-Eingang"; break;
+    case sonos::MediaSource::Other: break;
+    }
+    const std::string title = hasStation ? std::string(LV_SYMBOL_AUDIO " ") + current : state.roomName;
     setTextIfChanged(titleLabel_, title.c_str());
     setTextIfChanged(statusLabel_, statusText(state));
 }

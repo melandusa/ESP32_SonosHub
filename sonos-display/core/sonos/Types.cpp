@@ -12,6 +12,12 @@ TransportState parseTransportState(const std::string& value) {
     return TransportState::Unknown;
 }
 
+MediaSource mediaSourceOf(const std::string& uri) {
+    if (uri.rfind("x-sonos-htastream:", 0) == 0) return MediaSource::TvInput;  // HDMI ARC / optical
+    if (uri.rfind("x-rincon-stream:", 0) == 0) return MediaSource::LineIn;     // analog input
+    return MediaSource::Other;
+}
+
 bool isSameStream(const std::string& a, const std::string& b) {
     if (a.empty() || b.empty()) return false;
     const std::size_t lengthA = a.find('?') == std::string::npos ? a.size() : a.find('?');
