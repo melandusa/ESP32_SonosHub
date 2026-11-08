@@ -167,5 +167,13 @@ muss leer sein.
 - Gruppen: Befehle gehen an das gewählte Gerät, nicht an einen Gruppen-Koordinator (`TODO(groups)` in `SonosClient.h` und `SonosService.cpp`).
 - Bei mehreren steuerbaren Lautsprechern wird der erste genommen (nach einer Wiederverbindung bevorzugt der bisherige).
 - Senderlogos nur als PNG; JPEG-Logos (z. B. Sonos-Radio-Sender, Amazon) bleiben Text-Kacheln.
+- Nach einem Firmware-Update (oder anderen längeren Schreibvorgängen im Flash) zeigt das Display
+  manchmal Streifen, bis es einmal vom Strom getrennt wird. Ursache: Während der Flash beschrieben
+  wird, kommt der ESP32 nicht an den Bildspeicher im PSRAM, das RGB-Panel bekommt Datenmüll und der
+  ST7701 bleibt danach gestört. Neustart des ESP32, Neu-Synchronisieren der Bildausgabe,
+  Software-Reset und Schlafmodus des Panels helfen nicht (getestet); der Reset-Pin des Panels ist
+  nicht angeschlossen. Abhilfe wären `CONFIG_SPIRAM_XIP_FROM_PSRAM` und
+  `CONFIG_LCD_RGB_ISR_IRAM_SAFE`, die in den vorkompilierten Arduino-Bibliotheken fehlen
+  (eigene Bibliotheken bauen, z. B. mit der pioarduino-Plattform).
 - Ein Logo zu laden dauert auf dem ESP32 1,5–2,5 s. Ein Tipp in dieser Zeit (nur kurz nach dem
   Start oder nach geänderten Favoriten) wartet, bis das laufende Logo fertig ist.
