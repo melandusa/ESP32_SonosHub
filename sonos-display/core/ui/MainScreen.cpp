@@ -21,6 +21,8 @@ constexpr int32_t kControlsTop = kGridTop + kGridHeight + 8;
 constexpr int32_t kTileWidth = (kScreenSize - 2 * kMargin - 2 * kGap) / 3;
 constexpr int32_t kTileHeight = (kGridHeight - kGap) / 2;
 constexpr int32_t kTilePadHor = 6;
+constexpr int32_t kPageButtonWidth = 128;
+constexpr int32_t kHeaderTextWidthWithButton = kScreenSize - 14 - kPageButtonWidth - 8 - 10;
 
 const char* statusText(const app::AppState& state) {
     switch (state.transport) {
@@ -58,6 +60,15 @@ void setBgColor(lv_obj_t* obj, lv_color_t color) {
 void setTextColor(lv_obj_t* obj, lv_color_t color) {
     if (!lv_color_eq(lv_obj_get_style_text_color(obj, LV_PART_MAIN), color)) {
         lv_obj_set_style_text_color(obj, color, 0);
+    }
+}
+
+void setHidden(lv_obj_t* obj, bool hidden) {
+    if (hidden == lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return;
+    if (hidden) {
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -103,10 +114,17 @@ void MainScreen::create(lv_obj_t* screen) {
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     createHeader(screen);
-    createTiles(screen);
-    createControls(screen);
 
-    versionLabel_ = createLabel(screen, fonts::small(), styles::textDim());
+    // Everything of the Sonos page, so it can be hidden as a whole for the home page
+    musicPage_ = lv_obj_create(screen);
+    lv_obj_remove_style_all(musicPage_);
+    lv_obj_set_size(musicPage_, kScreenSize, kScreenSize);
+    lv_obj_remove_flag(musicPage_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(musicPage_, LV_OBJ_FLAG_SCROLLABLE);
+    createTiles(musicPage_);
+    createControls(musicPage_);
+
+    versionLabel_ = createLabel(musicPage_, fonts::small(), styles::textDim());
     lv_obj_align(versionLabel_, LV_ALIGN_TOP_RIGHT, -kMargin - 6, kGridTop + kGridHeight - 34);
     lv_obj_add_flag(versionLabel_, LV_OBJ_FLAG_HIDDEN);
 
@@ -149,6 +167,42 @@ void MainScreen::createHeader(lv_obj_t* screen) {
     lv_label_set_long_mode(messageLabel_, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(messageLabel_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(messageLabel_);
+
+    // Switches between music and home page; only shown with Homematic IP enabled
+    pageButton_ = lv_button_create(header);
+    styles::applyButtonStyle(pageButton_, styles::tile());
+    lv_obj_set_size(pageButton_, kPageButtonWidth, kHeaderHeight - 16);
+    lv_obj_align(pageButton_, LV_ALIGN_RIGHT_MID, -8, 0);
+    lv_obj_add_event_cb(pageButton_, onPageButton, LV_EVENT_CLICKED, this);
+    lv_obj_add_flag(pageButton_, LV_OBJ_FLAG_HIDDEN);
+    pageButtonLabel_ = createLabel(pageButton_, fonts::small(), styles::text());
+    lv_label_set_text(pageButtonLabel_, "");
+    lv_obj_center(pageButtonLabel_);
+}
+
+void MainScreen::enableHome(home::HomeController& home) {
+    if (home_) return;
+    home_ = &home;
+    homePage_ = std::make_unique<HomePage>(home);
+    lv_obj_t* screen = lv_obj_get_screen(musicPage_);
+    homePage_->create(screen, kGridTop);
+    homePage_->setVisible(false);
+    lv_obj_remove_flag(pageButton_, LV_OBJ_FLAG_HIDDEN);
+    layoutHeader();
+    lv_obj_move_foreground(wakeOverlay_);
+    render();
+}
+
+void MainScreen::layoutHeader() {
+    // With the page button: title and status on two lines left of it
+    lv_obj_set_width(titleLabel_, kHeaderTextWidthWithButton);
+    lv_obj_align(titleLabel_, LV_ALIGN_TOP_LEFT, 14, 4);
+    lv_obj_set_width(statusLabel_, kHeaderTextWidthWithButton);
+    lv_obj_set_style_text_align(statusLabel_, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(statusLabel_, LV_ALIGN_TOP_LEFT, 14, 38);
+    lv_obj_set_width(messageLabel_, kHeaderTextWidthWithButton);
+    lv_obj_set_style_text_align(messageLabel_, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(messageLabel_, LV_ALIGN_LEFT_MID, 14, 0);
 }
 
 void MainScreen::createTiles(lv_obj_t* screen) {
@@ -246,7 +300,9 @@ int MainScreen::favoriteIndexForTile(int tile) const {
 }
 
 void MainScreen::refresh() {
-    if (controller_.version() != renderedVersion_) render();
+    if (controller_.version() != renderedVersion_ || (home_ && home_->version() != renderedHomeVersion_)) {
+        render();
+    }
 }
 
 void MainScreen::setSystemMessage(const std::string& message) {
@@ -264,11 +320,24 @@ void MainScreen::setVersionText(const std::string& text) {
 void MainScreen::render() {
     const app::AppState& state = controller_.state();
     renderedVersion_ = controller_.version();
+    if (home_) renderedHomeVersion_ = home_->version();
     if (page_ >= pageCount()) page_ = 0;
+    // The screen saver always returns to the music page.
+    if (controller_.isScreenOff()) shownPage_ = Page::Music;
 
-    renderHeader(state);
-    renderTiles(state);
-    renderControls(state);
+    const bool homeShown = home_ && shownPage_ == Page::Home;
+    setHidden(musicPage_, homeShown);
+    if (homePage_) homePage_->setVisible(homeShown);
+    if (home_) setTextIfChanged(pageButtonLabel_, homeShown ? LV_SYMBOL_AUDIO " Musik" : LV_SYMBOL_HOME " Haus");
+
+    if (homeShown) {
+        renderHomeHeader();
+        homePage_->render();
+    } else {
+        renderHeader(state);
+        renderTiles(state);
+        renderControls(state);
+    }
     if (!versionText_.empty() && state.favorites.empty()) {
         setTextIfChanged(versionLabel_, versionText_.c_str());
         lv_obj_remove_flag(versionLabel_, LV_OBJ_FLAG_HIDDEN);
@@ -293,16 +362,8 @@ void MainScreen::renderHeader(const app::AppState& state) {
         message = LV_SYMBOL_WARNING " Lautsprecher nicht erreichbar – suche…";
     }
 
-    if (message) {
-        setTextIfChanged(messageLabel_, message);
-        lv_obj_remove_flag(messageLabel_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(titleLabel_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(statusLabel_, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
-    lv_obj_add_flag(messageLabel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(titleLabel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(statusLabel_, LV_OBJ_FLAG_HIDDEN);
+    showHeaderMessage(message);
+    if (message) return;
 
     // Station while something is selected, otherwise the room name
     const bool hasStation = connected && !state.currentTitle.empty() &&
@@ -316,6 +377,31 @@ void MainScreen::renderHeader(const app::AppState& state) {
     const std::string title = hasStation ? std::string(LV_SYMBOL_AUDIO " ") + current : state.roomName;
     setTextIfChanged(titleLabel_, title.c_str());
     setTextIfChanged(statusLabel_, statusText(state));
+}
+
+void MainScreen::showHeaderMessage(const char* message) {
+    if (message) setTextIfChanged(messageLabel_, message);
+    setHidden(messageLabel_, message == nullptr);
+    setHidden(titleLabel_, message != nullptr);
+    setHidden(statusLabel_, message != nullptr);
+}
+
+void MainScreen::renderHomeHeader() {
+    const char* message = nullptr;
+    if (!systemMessage_.empty()) {
+        message = systemMessage_.c_str();
+    } else {
+        switch (home_->state().connection) {
+        case home::HomeConnection::Connecting: message = LV_SYMBOL_REFRESH " verbindet mit HCU…"; break;
+        case home::HomeConnection::Unreachable: message = LV_SYMBOL_WARNING " HCU nicht erreichbar – versuche erneut…"; break;
+        case home::HomeConnection::AuthFailed: message = LV_SYMBOL_WARNING " HCU lehnt Zugriff ab – bitte neu koppeln"; break;
+        case home::HomeConnection::Connected: break;
+        }
+    }
+    showHeaderMessage(message);
+    if (message) return;
+    setTextIfChanged(titleLabel_, LV_SYMBOL_HOME " Zuhause");
+    setTextIfChanged(statusLabel_, "");
 }
 
 void MainScreen::renderTiles(const app::AppState& state) {
@@ -435,6 +521,12 @@ void MainScreen::onVolumeUp(lv_event_t* e) {
 
 void MainScreen::onStop(lv_event_t* e) {
     static_cast<MainScreen*>(lv_event_get_user_data(e))->controller_.stop();
+}
+
+void MainScreen::onPageButton(lv_event_t* e) {
+    auto* self = static_cast<MainScreen*>(lv_event_get_user_data(e));
+    self->shownPage_ = self->shownPage_ == Page::Music ? Page::Home : Page::Music;
+    self->render();
 }
 
 void MainScreen::onWakePressed(lv_event_t* e) {

@@ -34,11 +34,19 @@ FetchContent_Declare(tinyxml2
   GIT_SHALLOW TRUE
   SYSTEM)
 
-FetchContent_MakeAvailable(lvgl tinyxml2)
+# JSON for the Homematic IP Connect API (header-only, also used on the ESP32)
+FetchContent_Declare(ArduinoJson
+  GIT_REPOSITORY https://github.com/bblanchon/ArduinoJson.git
+  GIT_TAG v7.4.2
+  GIT_SHALLOW TRUE
+  SYSTEM)
+
+FetchContent_MakeAvailable(lvgl tinyxml2 ArduinoJson)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
 # LVGL's SDL driver includes <SDL2/SDL.h>
@@ -68,9 +76,14 @@ add_library(sonos_core STATIC
   core/app/SonosService.cpp
   core/app/AppController.cpp
   core/app/UpdateManifest.cpp
+  core/hcu/WebSocketClient.cpp
+  core/hcu/SocketHttp.cpp
+  core/hcu/HcuClient.cpp
+  core/home/HomeService.cpp
+  core/home/HomeController.cpp
 )
 target_include_directories(sonos_core PUBLIC core)
-target_link_libraries(sonos_core PUBLIC tinyxml2::tinyxml2 PRIVATE sonos_warnings)
+target_link_libraries(sonos_core PUBLIC tinyxml2::tinyxml2 ArduinoJson PRIVATE sonos_warnings)
 
 # UI font: LVGL's Montserrat-Medium.ttf embedded as C array, rendered by Tiny TTF
 set(SONOS_FONT_TTF ${lvgl_SOURCE_DIR}/scripts/built_in_font/Montserrat-Medium.ttf)
@@ -87,6 +100,7 @@ add_library(sonos_ui STATIC
   core/ui/Fonts.cpp
   core/ui/Styles.cpp
   core/ui/MainScreen.cpp
+  core/ui/HomePage.cpp
   core/ui/LogoDecoder.cpp
   ${SONOS_FONT_C}
 )
@@ -96,14 +110,15 @@ target_link_libraries(sonos_ui PUBLIC sonos_core lvgl PRIVATE sonos_warnings)
 
 add_library(sonos_platform_linux STATIC
   platform_linux/LinuxPlatform.cpp
-  platform_linux/ThreadWorker.cpp
   platform_linux/CurlHttpClient.cpp
   platform_linux/PosixSsdpDiscovery.cpp
   platform_linux/MockSonos.cpp
+  platform_linux/MockHome.cpp
+  platform_linux/OpenSslSocket.cpp
 )
 target_include_directories(sonos_platform_linux PUBLIC platform_linux)
 target_link_libraries(sonos_platform_linux
-  PUBLIC sonos_core CURL::libcurl Threads::Threads PRIVATE sonos_warnings)
+  PUBLIC sonos_core CURL::libcurl OpenSSL::SSL Threads::Threads PRIVATE sonos_warnings)
 
 add_executable(sonos_display platform_linux/main.cpp)
 target_link_libraries(sonos_display PRIVATE sonos_ui sonos_platform_linux sonos_warnings)

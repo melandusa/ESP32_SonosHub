@@ -1,0 +1,62 @@
+{
+  "home": { "id": "b2bd6575-bb27-4bd9-bc95-30e7a2e73a92", "weather": { "temperature": 7.5 } },
+  "groups": {
+    "83ae4162-08e7-4876-984e-46c767e5c8bd": { "id": "83ae4162-08e7-4876-984e-46c767e5c8bd", "label": "Wohnzimmer", "type": "META" }
+  },
+  "devices": {
+    "3014F711A00003C000000789": {
+      "id": "3014F711A00003C000000789", "type": "HOME_CONTROL_ACCESS_POINT", "label": "", "modelType": "HmIP-HCU1",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "ACCESS_CONTROLLER_CHANNEL", "label": "", "index": 0, "groups": [] }
+      }
+    },
+    "3014F711A0000000000000B1": {
+      "id": "3014F711A0000000000000B1", "type": "BRAND_SHUTTER", "label": "Rollladen Wohnzimmer", "modelType": "HmIP-BROLL",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "DEVICE_BASE", "label": "", "index": 0, "unreach": false, "dutyCycle": false },
+        "1": { "functionalChannelType": "SHUTTER_CHANNEL", "label": "", "index": 1, "shutterLevel": 0.25,
+               "previousShutterLevel": 1.0, "processing": false, "topToBottomReferenceTime": 30.0,
+               "groups": ["83ae4162-08e7-4876-984e-46c767e5c8bd"] }
+      }
+    },
+    "3014F711A0000000000000P1": {
+      "id": "3014F711A0000000000000P1", "type": "PLUGABLE_SWITCH_MEASURING", "label": "Stehlampe", "modelType": "HmIP-PSM",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "DEVICE_BASE", "label": "", "index": 0, "unreach": false },
+        "1": { "functionalChannelType": "SWITCH_MEASURING_CHANNEL", "label": "", "index": 1, "on": true,
+               "energyCounter": 12.5, "currentPowerConsumption": 7.1, "profileMode": "AUTOMATIC" }
+      }
+    },
+    "3014F711A0000000000000S2": {
+      "id": "3014F711A0000000000000S2", "type": "MULTI_IO_BOX", "label": "Aktor Flur", "modelType": "HmIP-BS2",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "DEVICE_BASE", "label": "", "index": 0, "unreach": false },
+        "1": { "functionalChannelType": "SWITCH_CHANNEL", "label": "", "index": 1, "on": false },
+        "2": { "functionalChannelType": "SWITCH_CHANNEL", "label": "Flurlicht", "index": 2, "on": true }
+      }
+    },
+    "3014F711A0000000000000H1": {
+      "id": "3014F711A0000000000000H1", "type": "HUNTER_DOUGLAS", "label": "Markise", "modelType": "HmIP-HDM1",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "DEVICE_BASE", "label": "", "index": 0, "unreach": false },
+        "1": { "functionalChannelType": "SHADING_CHANNEL", "label": "", "index": 1, "primaryShadingLevel": 1.0,
+               "secondaryShadingLevel": null, "processing": true }
+      }
+    },
+    "3014F711A0000000000000U1": {
+      "id": "3014F711A0000000000000U1", "type": "PLUGABLE_SWITCH_MEASURING", "label": "Kaffeemaschine", "modelType": "HmIP-PSM",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "DEVICE_BASE", "label": "", "index": 0, "unreach": true },
+        "1": { "functionalChannelType": "SWITCH_MEASURING_CHANNEL", "label": "", "index": 1, "on": null }
+      }
+    },
+    "3014F711A0000000000000W1": {
+      "id": "3014F711A0000000000000W1", "type": "SHUTTER_CONTACT", "label": "Fenster", "modelType": "HmIP-SWDO",
+      "functionalChannels": {
+        "0": { "functionalChannelType": "DEVICE_SABOTAGE", "label": "", "index": 0 },
+        "1": { "functionalChannelType": "SHUTTER_CONTACT_CHANNEL", "label": "", "index": 1, "windowState": "OPEN" }
+      }
+    }
+  },
+  "clients": {}
+}

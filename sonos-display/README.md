@@ -8,10 +8,10 @@ unverändert auf den ESP32-S3 (Guition 4848S040) übernommen.
 ## Abhängigkeiten (Debian/Ubuntu)
 
 ```sh
-sudo apt install build-essential cmake ninja-build pkg-config libsdl2-dev libcurl4-openssl-dev
+sudo apt install build-essential cmake ninja-build pkg-config libsdl2-dev libcurl4-openssl-dev libssl-dev
 ```
 
-CMake ≥ 3.25. LVGL 9.2.2, tinyxml2 11.0.0 und doctest 2.5.3 lädt CMake beim ersten
+CMake ≥ 3.25. LVGL 9.2.2, tinyxml2 11.0.0, ArduinoJson 7.4.2 und doctest 2.5.3 lädt CMake beim ersten
 Konfigurieren per `FetchContent` (Internetzugang nötig).
 
 ## Bauen und testen
@@ -37,6 +37,10 @@ ctest --test-dir build --output-on-failure      # oder: ./build/tests/sonos_test
 | `--max-volume <n>` | Lautstärke-Obergrenze 0..100 (Standard 60). Auch Werte, die über die Sonos-App höher gestellt werden, regelt das Display auf die Grenze herunter. |
 | `--dump-xml` | Rohe XML-Antworten ins Log schreiben (für Test-Fixtures) |
 | `--verbose` | Debug-Log |
+| `--hcu <adresse>` | Homematic IP Home Control Unit (IP oder `hcu1-XXXX.local`): Seite „Haus“ mit Steckdosen und Rollläden |
+| `--hcu-pair <schlüssel>` | Mit `--hcu`: einmalig koppeln (Aktivierungsschlüssel aus HCUweb), Token wird gespeichert |
+| `--hcu-token-file <datei>` | Token-Datei für `--hcu` (Standard `hcu_token.txt`) |
+| `--hcu-mock` | Simulierte HCU (3 Rollläden, 4 Steckdosen). Taste **`h`** steckt sie aus/ein. |
 
 ## Bedienung
 
@@ -53,11 +57,47 @@ Es werden nur Radio-Favoriten angezeigt (`x-sonosapi-stream:`, `x-sonosapi-radio
 `x-rincon-mp3radio:`, `aac:`, `hls-radio:`). Playlists, Alben, einzelne Titel und
 Sonos-Radio-Shortcuts ohne Stream-URI werden ausgeblendet und geloggt.
 
+## Homematic IP (Steckdosen und Rollläden)
+
+Mit einer **Homematic IP Home Control Unit (HCU)** zeigt die Kopfzeile rechts eine Taste
+**„⌂ Haus“** bzw. **„♪ Musik“**, die zwischen den Seiten wechselt. Die Haus-Seite zeigt alle
+Schaltaktoren/Steckdosen und Rollläden/Jalousien/Markisen der HCU als Kacheln (2×3, nach Namen
+sortiert, ab 7 Geräten mit „› Seite x/y“):
+
+- **Steckdose:** Kachel antippen schaltet um. Eingeschaltet = gelb, „AN“/„AUS“ darunter.
+- **Rollladen:** Tasten ▲ (ganz auf), ■ (Stopp), ▼ (ganz zu). Darunter „offen“, „zu“,
+  „40 % zu“ oder „fährt…“.
+- Nicht erreichbare Geräte (Funkstörung, Batterie) und die ganze Seite bei getrennter HCU
+  werden ausgegraut. Der Bildschirmschoner kehrt immer zur Musik-Seite zurück.
+
+Angesteuert wird die HCU lokal über die offizielle **Homematic IP Connect API** (WebSocket auf
+Port 9001, ohne Cloud). Geräte-Kanäle: `SWITCH_CHANNEL`, `SWITCH_MEASURING_CHANNEL`
+(`setSwitchState`), `SHUTTER_CHANNEL`, `BLIND_CHANNEL` (`setShutterLevel`), `SHADING_CHANNEL`
+(`setPrimaryShadingLevel`), Stopp mit `stop`. Änderungen, auch aus der App, kommen als
+Push-Events sofort an.
+
+**Einmalig in HCUweb** (`https://hcu1-XXXX.local`, XXXX = letzte 4 Stellen der SGTIN auf der
+Unterseite):
+
+1. Entwicklermodus aktivieren.
+2. „Connect API WebSocket freigeben“ einschalten.
+3. Einen **Aktivierungsschlüssel** erzeugen. Er gilt nur einmal und nur kurze Zeit.
+
+Danach am Display (siehe Einrichtung unten) bzw. in der Simulation mit `--hcu <adresse> --hcu-pair
+<schlüssel>` koppeln. Das Display erscheint dann in der Homematic IP App unter den Benutzern
+(dort kann man es auch wieder entfernen) und in HCUweb als Plugin „Sonos-Display“.
+Hinweis von eQ-3: Ist einmal ein Connect-API-Client angelegt, lässt sich der Entwicklermodus
+nicht mehr abschalten.
+
+Die TLS-Verbindung zur HCU prüft das Zertifikat nicht (die HCU nutzt ein selbst signiertes).
+Das Token wird nur im eigenen Netz gesendet.
+
 ## ESP32-S3 (Guition 4848S040)
 
 PlatformIO-Projekt im selben Ordner (`platformio.ini`), Quellen in `platform_esp32/`, dazu
 `core/` und `lv_conf.h` unverändert. Plattform espressif32 8.0.0 (Arduino-Core 3.3),
-LVGL 9.2.2, GFX Library for Arduino 1.6.9 (ST7701-RGB-Panel), WiFiManager 2.0.17, tinyxml2 11.0.0.
+LVGL 9.2.2, GFX Library for Arduino 1.6.9 (ST7701-RGB-Panel), WiFiManager 2.0.17, tinyxml2 11.0.0,
+ArduinoJson 7.4.2.
 
 ```sh
 pio run                        # bauen (oder in VS Code: PlatformIO → Build)
@@ -74,6 +114,13 @@ darunter optional:
 
 - **Lautsprecher-IP**: leer lassen = automatisch suchen
 - **Maximale Lautstärke** (1–100, Standard 60)
+- **Homematic IP HCU**: IP-Adresse oder `hcu1-XXXX.local`, leer = ohne Haus-Seite
+- **HCU-Aktivierungsschlüssel**: nur zum Koppeln. Beim nächsten Start tauscht das Display ihn
+  gegen ein Token (Anzeige „Homematic IP gekoppelt“ oder die Fehlermeldung). Für eine geänderte
+  HCU-Adresse ist ein neuer Schlüssel nötig.
+
+Um das bei einem schon eingerichteten Display nachzutragen: beim Einschalten 5 s auf das Display
+drücken (siehe unten), dann das WLAN-Passwort erneut eingeben und die HCU-Felder ausfüllen.
 
 Nach dem Speichern verbindet sich das Display und startet einmal neu. Die Einstellungen liegen
 im NVS und bleiben bei Updates erhalten.
@@ -115,13 +162,16 @@ Die erste Firmware mit Update-Funktion muss einmal per USB geflasht werden.
 
 ```
 core/                      portabel: nur C++17-Standardbibliothek, LVGL, tinyxml2
-  platform/   Interfaces: IHttpClient, IDiscovery, IClock, IBacklight, ILogger (+ Log.h)
+  platform/   Interfaces: IHttpClient, IStreamSocket, IDiscovery, IClock, IBacklight, ILogger (+ Log.h)
   sonos/      SoapBuilder, SoapParser, DidlParser, DeviceDescription, SonosClient, Ssdp, LogoUrl
   app/        Commands, IWorker, SonosService (Worker-Seite), AppController (UI-Seite), UpdateManifest
-  ui/         MainScreen, Styles, Fonts, LogoDecoder
-platform_linux/            CurlHttpClient, PosixSsdpDiscovery, ThreadWorker, MockSonos, main.cpp
-platform_esp32/            EspHttpClient, WifiUdpSsdpDiscovery, FreeRtosWorker, Display, Gt911Touch,
-                           Settings, OtaUpdater, main.cpp
+  hcu/        WebSocketClient, SocketHttp, HcuClient (Connect API, Kopplung)
+  home/       Types, Commands, IHomeBackend, HomeService (Worker-Seite), HomeController (UI-Seite)
+  ui/         MainScreen, HomePage, Styles, Fonts, LogoDecoder
+platform_linux/            CurlHttpClient, PosixSsdpDiscovery, OpenSslSocket, ThreadWorker, MockSonos,
+                           MockHome, main.cpp
+platform_esp32/            EspHttpClient, WifiUdpSsdpDiscovery, EspTlsSocket, FreeRtosWorker, Display,
+                           Gt911Touch, Settings, OtaUpdater, main.cpp
 tests/                     doctest; fixtures/ (Format-Beispiele) und fixtures/real/ (Mitschnitt Sonos Ray)
 ```
 
@@ -130,6 +180,11 @@ tests/                     doctest; fixtures/ (Format-Beispiele) und fixtures/re
 UI-Thread aufruft. LVGL wird nur im UI-Thread angefasst. Der Worker (Linux: `std::thread`)
 führt die Befehle blockierend über `SonosService` aus. Auf dem ESP32 übernimmt
 `FreeRtosWorker` (Task auf Core 0, Queues mit Zeigern) diese Rolle, `core/` bleibt gleich.
+Homematic IP hat einen eigenen Worker gleicher Bauart (`HomeController` → `HomeService` →
+`HcuClient`): Der `HomeController` hält dort immer genau einen `Poll` am Laufen, der bis 250 ms
+auf Push-Events der HCU wartet. Ein Tipp wird sofort angezeigt und spätestens nach diesem Poll
+gesendet. Das große Systemabbild der HCU parst ArduinoJson mit Filter (nur Name, Typ, Zustand)
+und auf dem ESP32 im PSRAM.
 
 **Verhalten:**
 - Status (`GetTransportInfo`, `GetVolume`, `GetMediaInfo`) alle 2 s, Favoriten beim Start und alle 10 min.
@@ -175,5 +230,9 @@ muss leer sein.
   nicht angeschlossen. Abhilfe wären `CONFIG_SPIRAM_XIP_FROM_PSRAM` und
   `CONFIG_LCD_RGB_ISR_IRAM_SAFE`, die in den vorkompilierten Arduino-Bibliotheken fehlen
   (eigene Bibliotheken bauen, z. B. mit der pioarduino-Plattform).
+- Homematic IP: nur einzelne Geräte, keine Gruppen/Räume und keine Lamellen (Jalousie-Winkel).
+  Es werden alle Steckdosen und Rollläden der HCU angezeigt; eine Auswahl gibt es noch nicht.
+  Lange Namen werden mit „…“ gekürzt. Auf echter Hardware noch nicht getestet (Speicherbedarf
+  der dauerhaften TLS-Verbindung neben LVGL und einem gleichzeitigen Firmware-Update).
 - Ein Logo zu laden dauert auf dem ESP32 1,5–2,5 s. Ein Tipp in dieser Zeit (nur kurz nach dem
   Start oder nach geänderten Favoriten) wartet, bis das laufende Logo fertig ist.

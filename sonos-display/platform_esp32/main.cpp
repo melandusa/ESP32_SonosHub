@@ -1,6 +1,9 @@
 // Firmware entry for the Guition ESP32-S3-4848S040.
 #include "app/AppController.h"
 #include "app/SonosService.h"
+#include "hcu/HcuClient.h"
+#include "home/HomeController.h"
+#include "home/HomeService.h"
 #include "platform/Log.h"
 #include "sonos/SonosClient.h"
 #include "ui/Fonts.h"
@@ -11,6 +14,7 @@
 #include "Display.h"
 #include "EspHttpClient.h"
 #include "EspPlatform.h"
+#include "EspTlsSocket.h"
 #include "FreeRtosWorker.h"
 #include "OtaUpdater.h"
 #include "Settings.h"
@@ -20,6 +24,7 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 
+#include <cctype>
 #include <cstdio>
 #include <ctime>
 
@@ -57,6 +62,15 @@ sonos::SonosClient client(http);
 esp_platform::Settings settings;
 esp_platform::OtaUpdater updater(kUpdateManifestUrl, SONOS_FIRMWARE_VERSION);
 
+// Homematic IP (only with an HCU address and a token from pairing)
+using HomeWorker = esp_platform::BasicFreeRtosWorker<home::HomeCommand, home::HomeResult>;
+esp_platform::EspTlsSocket hcuSocket;
+esp_platform::SpiRamAllocator jsonAllocator;
+hcu::HcuClient* hcuClient = nullptr;
+home::HomeService* homeService = nullptr;
+HomeWorker* homeWorker = nullptr;
+home::HomeController* homeController = nullptr;
+
 app::SonosService* service = nullptr;
 esp_platform::FreeRtosWorker* worker = nullptr;
 app::AppController* controller = nullptr;
@@ -64,6 +78,8 @@ ui::MainScreen* screen = nullptr;
 WiFiManager wifiManager;
 WiFiManagerParameter* speakerIpParam = nullptr;
 WiFiManagerParameter* maxVolumeParam = nullptr;
+WiFiManagerParameter* hcuHostParam = nullptr;
+WiFiManagerParameter* hcuKeyParam = nullptr;
 bool appStarted = false;
 bool restartAfterSetup = false;  // new settings from the portal take effect after a restart
 bool updateMessageShown = false;
@@ -72,6 +88,21 @@ uint64_t nextUpdateCheckMs = 0;
 uint32_t tickMs() { return millis(); }
 
 void logLvgl(lv_log_level_t /*level*/, const char* text) { Serial.print(text); }
+
+std::string trimmed(const char* text) {
+    std::string value = text ? text : "";
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(0, 1);
+    return value;
+}
+
+// Unique per display: an HCU can have several displays paired.
+std::string hcuPluginId() {
+    char id[48];
+    std::snprintf(id, sizeof(id), "de.esp32sonoshub.display.%012llx",
+                  static_cast<unsigned long long>(ESP.getEfuseMac()));
+    return id;
+}
 
 // Settings entered in the setup portal (shown below the WLAN password).
 void onPortalSaved() {
@@ -90,8 +121,14 @@ void onPortalSaved() {
     } else {
         LOGW("Setup: invalid maximum volume \"%s\" ignored", maxVolumeParam->getValue());
     }
+    const std::string hcuHost = trimmed(hcuHostParam->getValue());
+    if (hcuHost != settings.hcuHost) settings.hcuToken.clear();  // the token belongs to the old HCU
+    settings.hcuHost = hcuHost;
+    const std::string hcuKey = trimmed(hcuKeyParam->getValue());
+    if (!hcuKey.empty()) settings.hcuPairKey = hcuKey;
     settings.save();
-    LOGI("Setup: speaker IP \"%s\", max volume %d", settings.speakerIp.c_str(), settings.maxVolume);
+    LOGI("Setup: speaker IP \"%s\", max volume %d, HCU \"%s\"%s", settings.speakerIp.c_str(),
+         settings.maxVolume, settings.hcuHost.c_str(), hcuKey.empty() ? "" : " (pairing at next start)");
     restartAfterSetup = true;
 }
 
@@ -176,6 +213,47 @@ void handleFirmwareUpdate() {
     }
 }
 
+// Exchanges the activation key from the setup portal for a token (once, blocks a few seconds).
+void pairWithHcuIfRequested() {
+    if (settings.hcuPairKey.empty()) return;
+    const std::string key = settings.hcuPairKey;
+    settings.hcuPairKey.clear();  // activation keys are single-use: never retry with the same key
+    if (settings.hcuHost.empty()) {
+        settings.save();
+        return;
+    }
+    screen->setSystemMessage(LV_SYMBOL_REFRESH " Kopple mit Homematic IP…");
+    lv_refr_now(nullptr);
+    LOGI("HCU: pairing with %s as %s", settings.hcuHost.c_str(), hcuPluginId().c_str());
+    const hcu::PairingResult result = hcu::pairWithHcu(hcuSocket, settings.hcuHost, key, hcuPluginId(), "Sonos-Display");
+    if (result.ok) {
+        settings.hcuToken = result.authToken;
+        LOGI("HCU: paired");
+        screen->setSystemMessage(LV_SYMBOL_OK " Homematic IP gekoppelt");
+    } else {
+        LOGW("HCU: pairing failed: %s", result.error.c_str());
+        screen->setSystemMessage(std::string(LV_SYMBOL_WARNING " Kopplung fehlgeschlagen: ") + result.error);
+    }
+    settings.save();
+    lv_refr_now(nullptr);
+    delay(3000);
+}
+
+void startHome() {
+    if (settings.hcuHost.empty() || settings.hcuToken.empty()) return;
+    hcu::HcuConfig config;
+    config.host = settings.hcuHost;
+    config.authToken = settings.hcuToken;
+    config.pluginId = hcuPluginId();
+    hcuClient = new hcu::HcuClient(hcuSocket, systemClock, config, esp_random(), &jsonAllocator);
+    homeService = new home::HomeService(*hcuClient);
+    homeWorker = new HomeWorker([](const home::HomeCommand& command) { return homeService->execute(command); },
+                                "home_worker", 8, 16 * 1024);
+    homeController = new home::HomeController(*homeWorker, systemClock);
+    screen->enableHome(*homeController);
+    homeController->start();
+}
+
 void onUiTick(lv_timer_t* /*timer*/) {
     if (lv_display_get_inactive_time(nullptr) < kUiTickMs * 2) controller->noteUserActivity();
 
@@ -191,14 +269,18 @@ void onUiTick(lv_timer_t* /*timer*/) {
             }
             configTzTime(kTimeZone, "pool.ntp.org", "time.cloudflare.com");
             nextUpdateCheckMs = systemClock.nowMs() + kFirstUpdateCheckDelayMs;
+            esp_platform::beginMdns();
+            pairWithHcuIfRequested();
             screen->setSystemMessage("");
             controller->start();
+            startHome();
             appStarted = true;
         } else if (millis() > kFirmwareProbationMs && esp_platform::OtaUpdater::isPendingVerification()) {
             esp_platform::OtaUpdater::rejectFirmware();
         }
     } else {
         controller->tick();
+        if (homeController) homeController->tick();
         handleFirmwareUpdate();
     }
     screen->refresh();
@@ -252,8 +334,14 @@ void setup() {
     speakerIpParam = new WiFiManagerParameter(
         "speakerip", "Lautsprecher-IP (leer = automatisch suchen)", settings.speakerIp.c_str(), 15);
     maxVolumeParam = new WiFiManagerParameter("maxvolume", "Maximale Lautstärke (1–100)", maxVolumeText, 3);
+    hcuHostParam = new WiFiManagerParameter(
+        "hcuhost", "Homematic IP HCU: IP-Adresse oder hcu1-XXXX.local (leer = ohne)", settings.hcuHost.c_str(), 40);
+    hcuKeyParam = new WiFiManagerParameter(
+        "hcukey", "HCU-Aktivierungsschlüssel (nur zum Koppeln, aus HCUweb → Entwicklermodus)", "", 16);
     wifiManager.addParameter(speakerIpParam);
     wifiManager.addParameter(maxVolumeParam);
+    wifiManager.addParameter(hcuHostParam);
+    wifiManager.addParameter(hcuKeyParam);
     wifiManager.setSaveParamsCallback(onPortalSaved);
     wifiManager.setConfigPortalBlocking(false);
     wifiManager.setConnectTimeout(15);
